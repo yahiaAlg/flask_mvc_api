@@ -15,7 +15,7 @@ curl -X POST http://localhost:5000/api/pdf/create_embedded_pdf \
 ```
 
 ```bash
-curl -X POST http://localhost:5000/api/pdf/create_embedded_pdf \
+curl -X POST https://c81e-34-55-120-169.ngrok-free.app/api/pdf/create_embedded_pdf \
   -F "host_pdf=@./docs/django_dynamic_listings_and_detail_views.pdf" \
   -F "attachments[]=@./docs/django_templates__a_comprehensive_tutorial_on_inheritance_and_inclusion.pdf" \
   -o embedded_result.pdf
@@ -76,7 +76,7 @@ cat extracted_files.json | jq -r '.files | to_entries[] | "\(.key) \(.value)"' |
 
 ```bash
 # Extract the PDFs
-curl -X POST http://localhost:5000/api/pdf/extract_embedded_pdf \
+curl -X POST https://c81e-34-55-120-169.ngrok-free.app/api/pdf/extract_embedded_pdf \
   -F "pdf=@./embedded_result.pdf" \
   -o extracted_files.json
 
