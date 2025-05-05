@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PDF Embed/Extract Tool</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+        line-height: 1.6;
+      }
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+      .section {
+        margin-bottom: 30px;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+      .section h2 {
+        margin-top: 0;
+        color: #444;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: bold;
+      }
+      input[type="file"] {
+        margin-bottom: 15px;
+      }
+      button {
+        background-color: #4caf50;
+        color: white;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 16px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      #response {
+        margin-top: 20px;
+        padding: 10px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        background-color: #f9f9f9;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .response-content {
+        white-space: pre-wrap;
+      }
+      .hidden {
+        display: none;
+      }
+      .info {
+        margin-bottom: 15px;
+        font-style: italic;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>PDF Embed/Extract Tool</h1>
+
+    <div class="section">
+      <h2>Embed PDFs</h2>
+      <p class="info">
+        Upload a host PDF and attach one or more PDFs to embed within it.
+      </p>
+
+      <form id="embedForm" enctype="multipart/form-data">
+        <div>
+          <label for="hostPdf">Host PDF:</label>
+          <input
+            type="file"
+            id="hostPdf"
+            name="host_pdf"
+            accept="application/pdf"
+            required
+          />
+        </div>
+
+        <div>
+          <label for="attachments">Attachments (PDFs to embed):</label>
+          <input
+            type="file"
+            id="attachments"
+            name="attachments[]"
+            accept="application/pdf"
+            multiple
+            required
+          />
+        </div>
+
+        <button type="submit">Create Embedded PDF</button>
+      </form>
+
+      <div id="embedResponse" class="response hidden">
+        <h3>Result:</h3>
+        <div class="response-content"></div>
+        <div class="download-link"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Extract PDFs</h2>
+      <p class="info">
+        Upload a PDF that contains embedded files to extract them.
+      </p>
+
+      <form id="extractForm" enctype="multipart/form-data">
+        <div>
+          <label for="pdfToExtract">PDF with embedded files:</label>
+          <input
+            type="file"
+            id="pdfToExtract"
+            name="pdf"
+            accept="application/pdf"
+            required
+          />
+        </div>
+
+        <button type="submit">Extract PDFs</button>
+      </form>
+
+      <div id="extractResponse" class="response hidden">
+        <h3>Extracted Files:</h3>
+        <div class="response-content"></div>
+        <div class="download-links"></div>
+      </div>
+    </div>
+
+    <script>
+      // Handle embed form submission
+      document
+        .getElementById("embedForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+
+          const formData = new FormData(this);
+          const responseDiv = document.getElementById("embedResponse");
+          const responseContent =
+            responseDiv.querySelector(".response-content");
+          const downloadLink = responseDiv.querySelector(".download-link");
+
+          responseContent.textContent = "Processing...";
+          responseDiv.classList.remove("hidden");
+          downloadLink.innerHTML = "";
+
+          try {
+            const response = await fetch("/api/pdf/create_embedded_pdf", {
+              method: "POST",
+              body: formData,
+            });
+
+            if (response.ok) {
+              const blob = await response.blob();
+              const url = window.URL.createObjectURL(blob);
+
+              responseContent.textContent =
+                "PDF with embedded files created successfully!";
+
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = "embedded_result.pdf";
+              a.textContent = "Download Embedded PDF";
+              a.className = "download-button";
+              downloadLink.appendChild(a);
+            } else {
+              const errorData = await response.json();
+              responseContent.textContent = `Error: ${
+                errorData.error || "Unknown error"
+              }`;
+            }
+          } catch (error) {
+            responseContent.textContent = `Error: ${error.message}`;
+          }
+        });
+
+      // Handle extract form submission
+      document
+        .getElementById("extractForm")
+        .addEventListener("submit", async function (e) {
+          e.preventDefault();
+
+          const formData = new FormData(this);
+          const responseDiv = document.getElementById("extractResponse");
+          const responseContent =
+            responseDiv.querySelector(".response-content");
+          const downloadLinks = responseDiv.querySelector(".download-links");
+
+          responseContent.textContent = "Processing...";
+          responseDiv.classList.remove("hidden");
+          downloadLinks.innerHTML = "";
+
+          try {
+            const response = await fetch("/api/pdf/extract_embedded_pdf", {
+              method: "POST",
+              body: formData,
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+
+              if (data.count === 0) {
+                responseContent.textContent =
+                  "No embedded PDFs found in this document.";
+              } else {
+                responseContent.textContent = `Found ${data.count} embedded PDF(s):`;
+
+                // Create download links for each extracted PDF
+                for (const [filename, base64Content] of Object.entries(
+                  data.files
+                )) {
+                  const binaryContent = atob(base64Content);
+                  const byteArray = new Uint8Array(binaryContent.length);
+                  for (let i = 0; i < binaryContent.length; i++) {
+                    byteArray[i] = binaryContent.charCodeAt(i);
+                  }
+
+                  const blob = new Blob([byteArray], {
+                    type: "application/pdf",
+                  });
+                  const url = window.URL.createObjectURL(blob);
+
+                  const div = document.createElement("div");
+                  div.style.margin = "10px 0";
+
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.textContent = `Download ${filename}`;
+                  a.className = "download-button";
+
+                  div.appendChild(a);
+                  downloadLinks.appendChild(div);
+                }
+              }
+            } else {
+              const errorData = await response.json();
+              responseContent.textContent = `Error: ${
+                errorData.error || "Unknown error"
+              }`;
+            }
+          } catch (error) {
+            responseContent.textContent = `Error: ${error.message}`;
+          }
+        });
+    </script>
+  </body>
+</html>
