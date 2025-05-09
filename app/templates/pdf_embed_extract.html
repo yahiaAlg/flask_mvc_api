@@ -46,6 +46,10 @@
       button:hover {
         background-color: #45a049;
       }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
       #response {
         margin-top: 20px;
         padding: 10px;
@@ -65,6 +69,37 @@
         margin-bottom: 15px;
         font-style: italic;
         color: #666;
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        animation: spin 2s linear infinite;
+        display: inline-block;
+        margin-left: 10px;
+        vertical-align: middle;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      .file-list {
+        margin-top: 10px;
+        padding: 5px;
+        border: 1px dashed #ccc;
+        background-color: #f9f9f9;
+      }
+      .file-item {
+        margin: 5px 0;
+        padding: 5px;
+        background-color: #eee;
+        border-radius: 3px;
       }
     </style>
   </head>
@@ -99,9 +134,11 @@
             multiple
             required
           />
+          <div id="selectedFiles" class="file-list hidden"></div>
         </div>
 
-        <button type="submit">Create Embedded PDF</button>
+        <button type="button" id="embedSubmitBtn">Create Embedded PDF</button>
+        <span id="embedLoader" class="loader hidden"></span>
       </form>
 
       <div id="embedResponse" class="response hidden">
@@ -129,7 +166,8 @@
           />
         </div>
 
-        <button type="submit">Extract PDFs</button>
+        <button type="button" id="extractSubmitBtn">Extract PDFs</button>
+        <span id="extractLoader" class="loader hidden"></span>
       </form>
 
       <div id="extractResponse" class="response hidden">
@@ -140,59 +178,170 @@
     </div>
 
     <script>
-      // Handle embed form submission
+      // Track if a request is in progress
+      let embedRequestInProgress = false;
+      let extractRequestInProgress = false;
+
+      // Show selected attachments
       document
-        .getElementById("embedForm")
-        .addEventListener("submit", async function (e) {
-          e.preventDefault();
+        .getElementById("attachments")
+        .addEventListener("change", function (e) {
+          const fileList = document.getElementById("selectedFiles");
+          fileList.innerHTML = "";
+          fileList.classList.remove("hidden");
 
-          const formData = new FormData(this);
-          const responseDiv = document.getElementById("embedResponse");
-          const responseContent =
-            responseDiv.querySelector(".response-content");
-          const downloadLink = responseDiv.querySelector(".download-link");
-
-          responseContent.textContent = "Processing...";
-          responseDiv.classList.remove("hidden");
-          downloadLink.innerHTML = "";
-
-          try {
-            const response = await fetch("/api/pdf/create_embedded_pdf", {
-              method: "POST",
-              body: formData,
-            });
-
-            if (response.ok) {
-              const blob = await response.blob();
-              const url = window.URL.createObjectURL(blob);
-
-              responseContent.textContent =
-                "PDF with embedded files created successfully!";
-
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = "embedded_result.pdf";
-              a.textContent = "Download Embedded PDF";
-              a.className = "download-button";
-              downloadLink.appendChild(a);
-            } else {
-              const errorData = await response.json();
-              responseContent.textContent = `Error: ${
-                errorData.error || "Unknown error"
-              }`;
+          if (this.files.length > 0) {
+            for (let i = 0; i < this.files.length; i++) {
+              const fileItem = document.createElement("div");
+              fileItem.className = "file-item";
+              fileItem.textContent = `${i + 1}. ${
+                this.files[i].name
+              } (${Math.round(this.files[i].size / 1024)} KB)`;
+              fileList.appendChild(fileItem);
             }
-          } catch (error) {
-            responseContent.textContent = `Error: ${error.message}`;
+          } else {
+            fileList.classList.add("hidden");
           }
         });
 
-      // Handle extract form submission
+      // Handle embed button click
+      // In the click handler for embedSubmitBtn:
       document
-        .getElementById("extractForm")
-        .addEventListener("submit", async function (e) {
-          e.preventDefault();
+        .getElementById("embedSubmitBtn")
+        .addEventListener("click", async function () {
+          if (embedRequestInProgress) {
+            console.log("Request already in progress, ignoring click");
+            return;
+          }
 
-          const formData = new FormData(this);
+          // Set this immediately to prevent duplicate requests
+          embedRequestInProgress = true;
+          try {
+            const form = document.getElementById("embedForm");
+            if (!form.checkValidity()) {
+              form.reportValidity();
+              return;
+            }
+
+            embedRequestInProgress = true;
+            const submitBtn = this;
+            const loader = document.getElementById("embedLoader");
+            submitBtn.disabled = true;
+            loader.classList.remove("hidden");
+
+            const formData = new FormData(form);
+            const responseDiv = document.getElementById("embedResponse");
+            const responseContent =
+              responseDiv.querySelector(".response-content");
+            const downloadLink = responseDiv.querySelector(".download-link");
+
+            responseContent.textContent = "Processing...";
+            responseDiv.classList.remove("hidden");
+            downloadLink.innerHTML = "";
+
+            // Add a unique request ID header
+            const requestId =
+              "req_" +
+              Date.now().toString() +
+              "_" +
+              Math.random().toString(36).substring(2, 15);
+
+            console.log(`Sending request with ID: ${requestId}`);
+
+            try {
+              // Use AbortController to be able to cancel the request if needed
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+
+              const response = await fetch("/api/pdf/create_embedded_pdf", {
+                method: "POST",
+                body: formData,
+                headers: {
+                  "X-Request-ID": requestId,
+                  "Cache-Control": "no-cache, no-store, must-revalidate",
+                  Pragma: "no-cache",
+                  Expires: "0",
+                },
+                signal: controller.signal,
+                // Important: prevent automatic retries
+                cache: "no-store",
+                redirect: "follow",
+              });
+
+              clearTimeout(timeoutId);
+
+              if (response.ok) {
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const responseId =
+                  response.headers.get("X-Response-ID") || "result";
+
+                responseContent.textContent =
+                  "PDF with embedded files created successfully!";
+
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `embedded_${responseId}.pdf`;
+                a.textContent = "Download Embedded PDF";
+                a.className = "download-button";
+                downloadLink.appendChild(a);
+
+                console.log("Successfully processed request");
+              } else {
+                let errorMessage = "Unknown error";
+
+                try {
+                  const errorData = await response.json();
+                  errorMessage = errorData.error || errorMessage;
+                } catch (parseError) {
+                  console.error("Error parsing response:", parseError);
+                  errorMessage = `Status ${response.status}: ${response.statusText}`;
+                }
+
+                responseContent.textContent = `Error: ${errorMessage}`;
+                console.error(`Error response: ${errorMessage}`);
+              }
+            } catch (error) {
+              if (error.name === "AbortError") {
+                responseContent.textContent =
+                  "Request timed out. Please try again.";
+                console.error("Request was aborted due to timeout");
+              } else {
+                responseContent.textContent = `Error: ${error.message}`;
+                console.error("Fetch error:", error);
+              }
+            } finally {
+              // Re-enable the submit button and hide loader
+              submitBtn.disabled = false;
+              loader.classList.add("hidden");
+              embedRequestInProgress = false;
+              console.log("Request completed, UI reset");
+            }
+          } finally {
+            // This will run even if there's an error
+            embedRequestInProgress = false;
+          }
+        });
+
+      // Handle extract button click
+      document
+        .getElementById("extractSubmitBtn")
+        .addEventListener("click", async function () {
+          if (extractRequestInProgress) return;
+
+          const form = document.getElementById("extractForm");
+          if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+          }
+
+          extractRequestInProgress = true;
+          const submitBtn = this;
+          const loader = document.getElementById("extractLoader");
+          submitBtn.disabled = true;
+          loader.classList.remove("hidden");
+
+          const formData = new FormData(form);
           const responseDiv = document.getElementById("extractResponse");
           const responseContent =
             responseDiv.querySelector(".response-content");
@@ -202,10 +351,23 @@
           responseDiv.classList.remove("hidden");
           downloadLinks.innerHTML = "";
 
+          // Add a unique request ID header
+          const requestId =
+            "req_" +
+            Date.now().toString() +
+            "_" +
+            Math.random().toString(36).substring(2, 15);
+
           try {
             const response = await fetch("/api/pdf/extract_embedded_pdf", {
               method: "POST",
               body: formData,
+              headers: {
+                "X-Request-ID": requestId,
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                Pragma: "no-cache",
+                Expires: "0",
+              },
             });
 
             if (response.ok) {
@@ -246,13 +408,25 @@
                 }
               }
             } else {
-              const errorData = await response.json();
-              responseContent.textContent = `Error: ${
-                errorData.error || "Unknown error"
-              }`;
+              let errorMessage = "Unknown error";
+
+              try {
+                const errorData = await response.json();
+                errorMessage = errorData.error || errorMessage;
+              } catch (parseError) {
+                console.error("Error parsing response:", parseError);
+              }
+
+              responseContent.textContent = `Error: ${errorMessage}`;
             }
           } catch (error) {
             responseContent.textContent = `Error: ${error.message}`;
+            console.error("Fetch error:", error);
+          } finally {
+            // Re-enable the submit button and hide loader
+            submitBtn.disabled = false;
+            loader.classList.add("hidden");
+            extractRequestInProgress = false;
           }
         });
     </script>

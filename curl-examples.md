@@ -18,6 +18,7 @@ curl -X POST http://localhost:5000/api/pdf/create_embedded_pdf \
 curl -X POST https://c81e-34-55-120-169.ngrok-free.app/api/pdf/create_embedded_pdf \
   -F "host_pdf=@./docs/django_dynamic_listings_and_detail_views.pdf" \
   -F "attachments[]=@./docs/django_templates__a_comprehensive_tutorial_on_inheritance_and_inclusion.pdf" \
+  -F "attachments[]=@./docs/context_dictionaries_and_template_inheritance_in_web_development.pdf" \
   -o embedded_result.pdf
 ```
 
